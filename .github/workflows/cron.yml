@@ -7,7 +7,7 @@ on:
 env:
   GH_USER: aqua-bot
   DB_VERSION: 1
-  GH_REPO: dmitriylewen/trivy-db
+  GH_REPO: dmitriylewen/trivy-java-db
 permissions:
   packages: write # for GHCR
   contents: read
