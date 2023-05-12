@@ -7,6 +7,7 @@ on:
 env:
   GH_USER: aqua-bot
   DB_VERSION: 1
+  GH_REPO: dmitriylewen/trivy-db
 permissions:
   packages: write # for GHCR
   contents: read
@@ -50,5 +51,5 @@ jobs:
         run: |
           oras version
           oras push --artifact-type application/vnd.aquasec.trivy.config.v1+json \
-          ghcr.io/${{ github.repository }}:${DB_VERSION} \
+          ghcr.io/${{ env.GH_REPO }}:${DB_VERSION} \
           javadb.tar.gz:application/vnd.aquasec.trivy.javadb.layer.v1.tar+gzip
