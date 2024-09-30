@@ -82,7 +82,7 @@ jobs:
           done
 
       - name: Microsoft Teams Notification
-        uses: skitionek/notify-microsoft-teams@77cc88b484449e2318245a54c115c5dca0eae4ef
+        uses: skitionek/notify-microsoft-teams@master
         if: failure()
         with:
           webhook_url: ${{ secrets.TRIVY_MSTEAMS_WEBHOOK }}
