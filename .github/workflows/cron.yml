@@ -86,6 +86,7 @@ jobs:
         if: failure()
         with:
           webhook_url: ${{ secrets.TRIVY_MSTEAMS_WEBHOOK }}
+          needs: ${{ toJson(needs) }}
           job: ${{ toJson(job) }}
           steps: ${{ toJson(steps) }}
           raw: >-
@@ -101,7 +102,7 @@ jobs:
                         "type": "TextBlock",
                         "size": "Medium",
                         "weight": "Bolder",
-                        "text": "DmitriyLewen workflow_dispatch initialised workflow\"Trivy Java DB\"",
+                        "text": "\"Trivy Java DB\" workflow failed",
                         "style": "heading",
                         "wrap": true
                       },
@@ -109,7 +110,7 @@ jobs:
                         "type": "TextBlock",
                         "size": "Medium",
                         "weight": "lighter",
-                        "text": "[DmitriyLewen/trivy-java-db](https://github.com/DmitriyLewen/trivy-java-db)"
+                        "text": "[aquasecurity/trivy-java-db](https://github.com/aquasecurity/trivy-java-db)"
                       },
                       {
                         "type": "ColumnSet",
@@ -150,7 +151,7 @@ jobs:
                           {
                             "type": "Action.OpenUrl",
                             "title": "Repository",
-                            "url": "https://github.com/DmitriyLewen/trivy-java-db"
+                            "url": "https://github.com/aquasecurity/trivy-java-db"
                           },
                           {
                             "type": "Action.OpenUrl",
