@@ -86,6 +86,87 @@ jobs:
         if: failure()
         with:
           webhook_url: ${{ secrets.TRIVY_MSTEAMS_WEBHOOK }}
-          needs: ${{ toJson(needs) }}
           job: ${{ toJson(job) }}
           steps: ${{ toJson(steps) }}
+          raw: >-
+            {
+              "type": "message",
+              "attachments": [
+                {
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "content": {
+                    "type": "AdaptiveCard",
+                    "body": [
+                      {
+                        "type": "TextBlock",
+                        "size": "Medium",
+                        "weight": "Bolder",
+                        "text": "DmitriyLewen workflow_dispatch initialised workflow\"Trivy Java DB\"",
+                        "style": "heading",
+                        "wrap": true
+                      },
+                      {
+                        "type": "TextBlock",
+                        "size": "Medium",
+                        "weight": "lighter",
+                        "text": "[DmitriyLewen/trivy-java-db](https://github.com/DmitriyLewen/trivy-java-db)"
+                      },
+                      {
+                        "type": "ColumnSet",
+                        "columns": [
+                          {
+                            "type": "Column",
+                            "items": [
+                              {
+                                "type": "Image",
+                                "style": "person",
+                                "url": "https://raw.githubusercontent.com/Skitionek/notify-microsoft-teams/master/icons/failure.png",
+                                "altText": "Result",
+                                "size": "small"
+                              }
+                            ],
+                            "width": "auto"
+                          },
+                          {
+                            "type": "Column",
+                            "items": [
+                              {
+                                "type": "TextBlock",
+                                "weight": "bolder",
+                                "text": "Failure"
+                              },
+                              {
+                                "type": "TextBlock",
+                                "text": ""
+                              }
+                            ],
+                            "width": "stretch"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "ActionSet",
+                        "actions": [
+                          {
+                            "type": "Action.OpenUrl",
+                            "title": "Repository",
+                            "url": "https://github.com/DmitriyLewen/trivy-java-db"
+                          },
+                          {
+                            "type": "Action.OpenUrl",
+                            "title": "Compare"
+                          }
+                        ]
+                      }
+                    ],
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "version": "1.4",
+                    "msteams": {
+                      "entities": [
+                        {}
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
