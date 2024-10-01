@@ -82,7 +82,10 @@ jobs:
           done
 
       - name: Microsoft Teams Notification
-        uses: DmitriyLewen/notify-microsoft-teams@1e16448652e7b569fea6400aca8bbf4e0639dca1
+        ## Until the PR with the fix for the AdaptivCard version is merged yet
+        ## https://github.com/Skitionek/notify-microsoft-teams/pull/96
+        ## Use the aquasecurity fork
+        uses: aquasecurity/notify-microsoft-teams@master
         if: failure()
         with:
           webhook_url: ${{ secrets.TRIVY_MSTEAMS_WEBHOOK }}
