@@ -121,7 +121,7 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 
 			if err := c.crawlDir(ctx, dir); err != nil {
 				c.errOnce.Do(func() {
-					errCh <- xerrors.Errorf("unable to crawl directory: %w", err)
+					errCh <- xerrors.Errorf("unable to crawl directory (%s): %w", dir, err)
 				})
 			}
 		}()
@@ -136,7 +136,7 @@ loop:
 			slog.Info("Total saved indexes", slog.Int("count", c.count))
 			break loop
 		case fErr = <-errCh:
-			slog.Error("unable to crawl directory", fErr)
+			slog.Error("unable to crawl directory")
 			cancel()
 		}
 	}
