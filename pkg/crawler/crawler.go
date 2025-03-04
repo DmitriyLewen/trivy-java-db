@@ -119,7 +119,7 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 			defer c.wg.Done()
 			defer c.limit.Release(1)
 
-			if err = c.crawlDir(ctx, dir); err != nil {
+			if err := c.crawlDir(ctx, dir); err != nil {
 				c.errOnce.Do(func() {
 					errCh <- xerrors.Errorf("unable to crawl directory: %w", err)
 				})
@@ -128,18 +128,20 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 	}
 	c.wg.Done()
 
+	var fErr error
 loop:
 	for {
 		select {
 		case <-doneCh:
 			slog.Info("Total saved indexes", slog.Int("count", c.count))
 			break loop
-		case err = <-errCh:
+		case fErr = <-errCh:
+			slog.Error("unable to crawl directory", err)
 			cancel()
 		}
 	}
 
-	if err != nil {
+	if fErr != nil {
 		return xerrors.Errorf("crawl error: %w", err)
 	}
 
