@@ -136,13 +136,13 @@ loop:
 			slog.Info("Total saved indexes", slog.Int("count", c.count))
 			break loop
 		case fErr = <-errCh:
-			slog.Error("unable to crawl directory", err)
+			slog.Error("unable to crawl directory", fErr)
 			cancel()
 		}
 	}
 
 	if fErr != nil {
-		return xerrors.Errorf("crawl error: %w", err)
+		return xerrors.Errorf("crawl error: %w", fErr)
 	}
 
 	return nil
