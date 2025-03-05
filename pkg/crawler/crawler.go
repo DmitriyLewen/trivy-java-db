@@ -193,7 +193,8 @@ func (c *Crawler) crawlDir(ctx context.Context, dir string) error {
 
 	bucket := client.Bucket(bucketName)
 	query := &storage.Query{
-		Prefix:    path.Join(c.queryRootPrefix, dir),
+		// add `/` suffix to avoid checking dir twice (e.g. for `org/json` we will parse `org/json` and `org/json4s`.)
+		Prefix:    path.Join(c.queryRootPrefix, dir) + "/",
 		MatchGlob: "**jar.sha1",
 	}
 
@@ -289,6 +290,10 @@ func retrieveObjectContent(ctx context.Context, bucket *storage.BucketHandle, ob
 func parseObjectName(bucketName string) (string, string, string) {
 	bucketName = strings.TrimPrefix(bucketName, "maven2/")
 	ss := strings.Split(bucketName, "/")
+	if len(ss) < 4 {
+		slog.Warn("Wrong bucket name", slog.String("bucketName", bucketName))
+		return "", "", ""
+	}
 	groupID := strings.Join(ss[:len(ss)-3], ".")
 	artifactID := ss[len(ss)-3]
 	// Take version from filename
@@ -320,7 +325,7 @@ func (c *Crawler) decodeSha1String(objName, sha1s string) []byte {
 }
 
 func (c *Crawler) saveIndexToFile(index Index) error {
-	if len(index.Versions) == 0 {
+	if len(index.Versions) == 0 || index.GroupID == "" || index.ArtifactID == "" {
 		return nil
 	}
 
