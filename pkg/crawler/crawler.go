@@ -381,6 +381,7 @@ func (c *Crawler) parseMetadata(ctx context.Context, url string) (*Metadata, err
 }
 
 func (c *Crawler) fetchSHA1(ctx context.Context, url string) ([]byte, error) {
+	url = strings.ReplaceAll(url, "https://repo.maven.apache.org", "https://storage.googleapis.com/maven-central")
 	resp, err := c.httpGet(ctx, url)
 	if err != nil {
 		return nil, xerrors.Errorf("http get error: %w", err)
