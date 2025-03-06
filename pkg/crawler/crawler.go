@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,24 +15,18 @@ import (
 	"sync"
 	"time"
 
-	"cloud.google.com/go/storage"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/samber/lo"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/xerrors"
-	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 
 	"github.com/aquasecurity/trivy-java-db/pkg/db"
 	"github.com/aquasecurity/trivy-java-db/pkg/fileutil"
 	"github.com/aquasecurity/trivy-java-db/pkg/types"
 )
 
-const (
-	mavenRepoURL = "https://repo.maven.apache.org/"
-	maven2Dir    = "maven2/"
-)
+const mavenRepoURL = "https://repo.maven.apache.org/maven2/"
 
 type Crawler struct {
 	dir  string
@@ -80,7 +73,7 @@ func NewCrawler(opt Option) (Crawler, error) {
 	}
 
 	if opt.RootUrl == "" {
-		opt.RootUrl = mavenRepoURL + maven2Dir
+		opt.RootUrl = mavenRepoURL
 	}
 
 	indexDir := filepath.Join(opt.CacheDir, "indexes")
@@ -244,64 +237,33 @@ func (c *Crawler) Visit(ctx context.Context, url string) error {
 
 func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata, dirs []string) error {
 	var foundVersions []types.Version
+	// Get versions from the DB (if exists) to reduce the number of requests to the server
+	savedVersion, err := c.versionsFromDB(meta.ArtifactID, meta.GroupID)
+	if err != nil {
+		return xerrors.Errorf("unable to get list of versions from DB: %w", err)
+	}
 	// Check each version dir to find links to `*.jar.sha1` files.
 	for _, dir := range dirs {
-		baseURL = strings.TrimPrefix(baseURL, mavenRepoURL)
 		dirURL := baseURL + dir
-		// Create a storage client without authentication (public bucket access).
-		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+		sha1Urls, err := c.sha1Urls(ctx, dirURL)
 		if err != nil {
-			return xerrors.Errorf("unable to create storage client: %w", err)
+			return xerrors.Errorf("unable to get list of sha1 files from %q: %s", dirURL, err)
 		}
-		defer client.Close()
-
-		bucket := client.Bucket("maven-central")
-		query := &storage.Query{
-
-			Prefix:    dirURL,
-			MatchGlob: "**jar.sha1",
-		}
-
-		err = query.SetAttrSelection([]string{"Name"})
-		if err != nil {
-			return xerrors.Errorf("unable to set attr selection: %w", err)
-		}
-
-		it := bucket.Objects(ctx, query)
 
 		// Remove the `/` suffix to correctly compare file versions with version from directory name.
 		dirVersion := strings.TrimSuffix(dir, "/")
 		var dirVersionSha1 []byte
 		var versions []types.Version
 
-		for {
-			// Get the next object.
-			obj, err := it.Next()
-			if errors.Is(err, iterator.Done) {
-				break
-			} else if err != nil {
-				return xerrors.Errorf("failed to iterate objects: %w", err)
+		for _, sha1Url := range sha1Urls {
+			ver := versionFromSha1URL(meta.ArtifactID, sha1Url)
+			sha1, ok := savedVersion[ver]
+			if !ok {
+				sha1, err = c.fetchSHA1(ctx, sha1Url)
+				if err != nil {
+					return xerrors.Errorf("unable to fetch sha1: %s", err)
+				}
 			}
-
-			ver := versionFromSha1URL(meta.ArtifactID, obj.Name)
-			// Don't save sources, test, javadocs, scaladoc files
-			if strings.HasSuffix(obj.Name, "sources.jar.sha1") || strings.HasSuffix(obj.Name, "test.jar.sha1") ||
-				strings.HasSuffix(obj.Name, "tests.jar.sha1") || strings.HasSuffix(obj.Name, "javadoc.jar.sha1") ||
-				strings.HasSuffix(obj.Name, "scaladoc.jar.sha1") {
-				continue
-			}
-
-			// Retrieve the SHA1 file's content.
-			sha1Content, err := retrieveObjectContent(ctx, bucket, obj.Name)
-			if err != nil {
-				return xerrors.Errorf("failed to retrieve content: %w", err)
-			}
-
-			sha1 := c.decodeSha1String(obj.Name, sha1Content)
-			if len(sha1) == 0 {
-				continue
-			}
-
 			// Save sha1 for the file where the version is equal to the version from the directory name in order to remove duplicates later
 			// Avoid overwriting dirVersion when inserting versions into the database (sha1 is uniq blob)
 			// e.g. `cudf-0.14-cuda10-1.jar.sha1` should not overwrite `cudf-0.14.jar.sha1`
@@ -327,6 +289,11 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 			})
 		}
 
+		versions = lo.Filter(versions, func(v types.Version, _ int) bool {
+			_, ok := savedVersion[v.Version]
+			return !ok
+		})
+
 		foundVersions = append(foundVersions, versions...)
 	}
 
@@ -345,45 +312,6 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 	if err := fileutil.WriteJSON(filePath, index); err != nil {
 		return xerrors.Errorf("json write error: %w", err)
 	}
-	return nil
-}
-
-// retrieveObjectContent retrieves and returns the content of an object.
-func retrieveObjectContent(ctx context.Context, bucket *storage.BucketHandle, objectName string) (string, error) {
-	obj := bucket.Object(objectName)
-	reader, err := obj.NewReader(ctx)
-	if err != nil {
-		return "", err
-	}
-	defer reader.Close()
-
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-func (c *Crawler) decodeSha1String(objName, sha1s string) []byte {
-	// there are empty xxx.jar.sha1 files. Skip them.
-	// e.g. https://repo.maven.apache.org/maven2/org/wso2/msf4j/msf4j-swagger/2.5.2/msf4j-swagger-2.5.2.jar.sha1
-	// https://repo.maven.apache.org/maven2/org/wso2/carbon/analytics/org.wso2.carbon.permissions.rest.api/2.0.248/org.wso2.carbon.permissions.rest.api-2.0.248.jar.sha1
-	if sha1s == "" {
-		return nil
-	}
-
-	// there are xxx.jar.sha1 files with additional data. e.g.:
-	// https://repo.maven.apache.org/maven2/aspectj/aspectjrt/1.5.2a/aspectjrt-1.5.2a.jar.sha1
-	// https://repo.maven.apache.org/maven2/xerces/xercesImpl/2.9.0/xercesImpl-2.9.0.jar.sha1
-	var err error
-	for _, s := range strings.Split(strings.TrimSpace(sha1s), " ") {
-		var sha1 []byte
-		sha1, err = hex.DecodeString(s)
-		if err == nil {
-			return sha1
-		}
-	}
-	c.wrongSHA1Values = append(c.wrongSHA1Values, fmt.Sprintf("%s (%s)", objName, err))
 	return nil
 }
 
