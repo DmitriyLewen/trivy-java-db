@@ -44,6 +44,7 @@ type Crawler struct {
 	limit           *semaphore.Weighted
 	errOnce         sync.Once
 	queryRootPrefix string
+	queryPrefix     chan string
 
 	// Number of Indexes
 	count           int
@@ -74,6 +75,7 @@ func NewCrawler(opt Option) (Crawler, error) {
 		dir:             indexDir,
 		limit:           semaphore.NewWeighted(opt.Limit),
 		queryRootPrefix: queryRootPrefix,
+		queryPrefix:     make(chan string),
 	}, nil
 }
 
@@ -82,25 +84,20 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	dirs, err := c.getDirList(ctx, "")
-	if err != nil {
-		return xerrors.Errorf("unable to get dir list: %w", err)
-	}
+	errCh := make(chan error)
+	defer close(errCh)
 
-	var nestedDirs []string
-	for _, dir := range dirs {
-		var dd []string
-		dd, err = c.getDirList(ctx, dir)
+	go func() {
+		err := c.crawlDirs(ctx, "")
 		if err != nil {
-			return xerrors.Errorf("unable to get dir list for %s dir: %w", dir, err)
+			c.errOnce.Do(func() {
+				errCh <- xerrors.Errorf("unable to crawl dirs %w", err)
+			})
 		}
-		nestedDirs = append(nestedDirs, dd...)
-	}
+	}()
 
 	doneCh := make(chan struct{})
 	defer close(doneCh)
-	errCh := make(chan error)
-	defer close(errCh)
 
 	c.wg.Add(1)
 	go func() {
@@ -108,8 +105,9 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 		doneCh <- struct{}{}
 	}()
 
-	for _, dir := range nestedDirs {
-		if err = c.limit.Acquire(ctx, 1); err != nil {
+	for queryPrefix := range c.queryPrefix {
+		slog.Info("queryPrefix", slog.String("prefix", queryPrefix))
+		if err := c.limit.Acquire(ctx, 1); err != nil {
 			errCh <- xerrors.Errorf("semaphore acquire error: %w", err)
 			break
 		}
@@ -119,9 +117,9 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 			defer c.wg.Done()
 			defer c.limit.Release(1)
 
-			if err := c.crawlDir(ctx, dir); err != nil {
+			if err := c.crawlQuery(ctx, queryPrefix); err != nil {
 				c.errOnce.Do(func() {
-					errCh <- xerrors.Errorf("unable to crawl directory (%s): %w", dir, err)
+					errCh <- xerrors.Errorf("unable to crawl directory (%s): %w", queryPrefix, err)
 				})
 			}
 		}()
@@ -148,23 +146,42 @@ loop:
 	return nil
 }
 
-func (c *Crawler) getDirList(ctx context.Context, dir string) ([]string, error) {
-	slog.Info("Getting list of dirs", slog.String("dir", dir))
+func (c *Crawler) crawlDirs(ctx context.Context, dir string) error {
 	u, err := url.JoinPath(c.rootUrl, dir)
 	if err != nil {
-		return nil, xerrors.Errorf("unable to join url: %w", err)
+		return xerrors.Errorf("unable to join url: %w", err)
 	}
 	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, xerrors.Errorf("unable to create a HTTP request: %w", err)
+		return xerrors.Errorf("unable to create a HTTP request: %w", err)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, xerrors.Errorf("http error (%s): %w", c.rootUrl, err)
+		return xerrors.Errorf("http error (%s): %w", c.rootUrl, err)
 	}
 	defer resp.Body.Close()
 
-	d, err := goquery.NewDocumentFromReader(resp.Body)
+	nestedDirs, err := dirOnPage(dir, resp.Body)
+	if err != nil {
+		return xerrors.Errorf("unable to get dir list for %s dir: %w", dir, err)
+	}
+	for _, nestedDir := range nestedDirs {
+		if len(strings.Split(nestedDir, "/")) == 3 {
+			// add `/` suffix to avoid checking dir twice (e.g. for `org/json` we will parse `org/json` and `org/json4s`.)
+			c.queryPrefix <- path.Join(c.queryRootPrefix, nestedDir) + "/"
+			return nil
+		}
+		err = c.crawlDirs(ctx, nestedDir)
+		if err != nil {
+			return xerrors.Errorf("unable to get dir list for %s dir: %w", nestedDir, err)
+		}
+	}
+
+	return nil
+}
+
+func dirOnPage(dir string, body io.Reader) ([]string, error) {
+	d, err := goquery.NewDocumentFromReader(body)
 	if err != nil {
 		return nil, xerrors.Errorf("can't create new goquery doc: %w", err)
 	}
@@ -179,11 +196,10 @@ func (c *Crawler) getDirList(ctx context.Context, dir string) ([]string, error) 
 
 		dirs = append(dirs, path.Join(dir, link))
 	})
-
 	return dirs, nil
 }
 
-func (c *Crawler) crawlDir(ctx context.Context, dir string) error {
+func (c *Crawler) crawlQuery(ctx context.Context, prefix string) error {
 	// Create a storage client without authentication (public bucket access).
 	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 	if err != nil {
@@ -193,8 +209,8 @@ func (c *Crawler) crawlDir(ctx context.Context, dir string) error {
 
 	bucket := client.Bucket(bucketName)
 	query := &storage.Query{
-		// add `/` suffix to avoid checking dir twice (e.g. for `org/json` we will parse `org/json` and `org/json4s`.)
-		Prefix:    path.Join(c.queryRootPrefix, dir) + "/",
+
+		Prefix:    prefix,
 		MatchGlob: "**jar.sha1",
 	}
 
