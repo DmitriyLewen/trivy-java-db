@@ -26,7 +26,11 @@ import (
 	"github.com/aquasecurity/trivy-java-db/pkg/types"
 )
 
-const mavenRepoURL = "https://repo.maven.apache.org/maven2/"
+const (
+	mavenRepoURL = "https://repo.maven.apache.org/"
+	gcrURL       = "https://storage.googleapis.com/maven-central/"
+	maven2Suffix = "maven2/help/"
+)
 
 type Crawler struct {
 	dir  string
@@ -54,6 +58,14 @@ func NewCrawler(opt Option) (Crawler, error) {
 	client.RetryWaitMax = 5 * time.Minute
 	client.Backoff = retryablehttp.LinearJitterBackoff
 	client.ResponseLogHook = func(_ retryablehttp.Logger, resp *http.Response) {
+		// GCR doesn't have all the files sha1.
+		// cf. https://github.com/aquasecurity/trivy-java-db/pull/52#issuecomment-2703694693
+		// We get sha1 for these files from maven-central.
+		// So we need to disable warnings for these files to avoid noise.
+		if resp.StatusCode == http.StatusNotFound && strings.HasPrefix(resp.Request.URL.String(), gcrURL) {
+			return
+		}
+
 		if resp.StatusCode != http.StatusOK {
 			slog.Warn("Unexpected http response", slog.String("url", resp.Request.URL.String()), slog.String("status", resp.Status))
 		}
@@ -73,7 +85,7 @@ func NewCrawler(opt Option) (Crawler, error) {
 	}
 
 	if opt.RootUrl == "" {
-		opt.RootUrl = mavenRepoURL
+		opt.RootUrl = mavenRepoURL + maven2Suffix
 	}
 
 	indexDir := filepath.Join(opt.CacheDir, "indexes")
@@ -381,11 +393,7 @@ func (c *Crawler) parseMetadata(ctx context.Context, url string) (*Metadata, err
 }
 
 func (c *Crawler) fetchSHA1(ctx context.Context, url string) ([]byte, error) {
-	url = strings.ReplaceAll(url, "https://repo.maven.apache.org", "https://storage.googleapis.com/maven-central")
-	resp, err := c.httpGet(ctx, url)
-	if err != nil {
-		return nil, xerrors.Errorf("http get error: %w", err)
-	}
+	resp, err := c.tryFetchSHA1(ctx, url)
 	defer func() { _ = resp.Body.Close() }()
 
 	// These are cases when version dir contains link to sha1 file
@@ -421,6 +429,23 @@ func (c *Crawler) fetchSHA1(ctx context.Context, url string) ([]byte, error) {
 		return nil, nil
 	}
 	return sha1b, nil
+}
+
+func (c *Crawler) tryFetchSHA1(ctx context.Context, url string) (*http.Response, error) {
+	gcsURL := strings.ReplaceAll(url, mavenRepoURL, gcrURL)
+	resp, err := c.httpGet(ctx, gcsURL)
+	if err != nil {
+		return nil, xerrors.Errorf("http get error: %w", err)
+	} else if resp.StatusCode == http.StatusOK {
+		return resp, nil
+	}
+
+	resp, err = c.httpGet(ctx, url)
+	if err != nil {
+		return nil, xerrors.Errorf("http get error: %w", err)
+	}
+
+	return resp, nil
 }
 
 func (c *Crawler) httpGet(ctx context.Context, url string) (*http.Response, error) {
