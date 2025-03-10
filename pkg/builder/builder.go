@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cheggaaa/pb/v3"
@@ -49,13 +50,18 @@ func (b *Builder) Build(cacheDir string) error {
 		if err := json.NewDecoder(r).Decode(index); err != nil {
 			return xerrors.Errorf("failed to decode index: %w", err)
 		}
+		dir, file := filepath.Split(path)
+		dir = strings.TrimPrefix(dir, indexDir)
+
+		artifactID := strings.TrimSuffix(file, ".json")
+		groupID := strings.ReplaceAll(dir, "/", ".")
 		for _, ver := range index.Versions {
 			indexes = append(indexes, types.Index{
-				GroupID:     index.GroupID,
-				ArtifactID:  index.ArtifactID,
+				GroupID:     groupID,
+				ArtifactID:  artifactID,
 				Version:     ver.Version,
 				SHA1:        ver.SHA1,
-				ArchiveType: index.ArchiveType,
+				ArchiveType: types.JarType,
 			})
 		}
 		bar.Increment()

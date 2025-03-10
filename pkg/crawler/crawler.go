@@ -29,7 +29,7 @@ import (
 const (
 	mavenRepoURL = "https://repo.maven.apache.org/"
 	gcrURL       = "https://storage.googleapis.com/maven-central/"
-	maven2Suffix = "maven2/help/"
+	maven2Suffix = "maven2/"
 )
 
 type Crawler struct {
@@ -314,13 +314,11 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 	}
 
 	index := &Index{
-		GroupID:     meta.GroupID,
-		ArtifactID:  meta.ArtifactID,
-		Versions:    foundVersions,
-		ArchiveType: types.JarType,
+		Versions: foundVersions,
 	}
-	fileName := fmt.Sprintf("%s.json", index.ArtifactID)
-	filePath := filepath.Join(c.dir, index.GroupID, fileName)
+	fileName := fmt.Sprintf("%s.json", meta.ArtifactID)
+	dirPath := filepath.Join(strings.Split(meta.GroupID, ".")...)
+	filePath := filepath.Join(c.dir, dirPath, fileName)
 	if err := fileutil.WriteJSON(filePath, index); err != nil {
 		return xerrors.Errorf("json write error: %w", err)
 	}
