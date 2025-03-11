@@ -12,7 +12,6 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/utils/clock"
 
-	"github.com/aquasecurity/trivy-java-db/pkg/crawler"
 	"github.com/aquasecurity/trivy-java-db/pkg/db"
 	"github.com/aquasecurity/trivy-java-db/pkg/fileutil"
 	"github.com/aquasecurity/trivy-java-db/pkg/types"
@@ -45,9 +44,9 @@ func (b *Builder) Build(cacheDir string) error {
 	defer bar.Finish()
 
 	var indexes []types.Index
-	if err := fileutil.Walk(indexDir, func(r io.Reader, path string) error {
-		index := &crawler.Index{}
-		if err := json.NewDecoder(r).Decode(index); err != nil {
+	if err = fileutil.Walk(indexDir, func(r io.Reader, path string) error {
+		var versions []types.Version
+		if err := json.NewDecoder(r).Decode(&versions); err != nil {
 			return xerrors.Errorf("failed to decode index: %w", err)
 		}
 		dir, file := filepath.Split(path)
@@ -55,7 +54,7 @@ func (b *Builder) Build(cacheDir string) error {
 
 		artifactID := strings.TrimSuffix(file, ".json")
 		groupID := strings.ReplaceAll(dir, "/", ".")
-		for _, ver := range index.Versions {
+		for _, ver := range versions {
 			indexes = append(indexes, types.Index{
 				GroupID:     groupID,
 				ArtifactID:  artifactID,

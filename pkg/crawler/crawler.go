@@ -313,13 +313,10 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 		return nil
 	}
 
-	index := &Index{
-		Versions: foundVersions,
-	}
 	fileName := fmt.Sprintf("%s.json", meta.ArtifactID)
 	dirPath := filepath.Join(strings.Split(meta.GroupID, ".")...)
 	filePath := filepath.Join(c.dir, dirPath, fileName)
-	if err := fileutil.WriteJSON(filePath, index); err != nil {
+	if err := fileutil.WriteJSON(filePath, foundVersions); err != nil {
 		return xerrors.Errorf("json write error: %w", err)
 	}
 	return nil
