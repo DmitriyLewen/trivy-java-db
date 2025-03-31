@@ -32,8 +32,7 @@ jobs:
       - name: Pull trivy-java-db
         run: |
           mkdir -p ./cache/db
-          lowercase_repo=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          ./oras pull "ghcr.io/${lowercase_repo}:${DB_VERSION}"
+          ./oras pull "ghcr.io/aquasecurity/trivy-java-db:${DB_VERSION}"
           tar -xvf javadb.tar.gz -C ./cache/db
 
       - name: Build the binary
