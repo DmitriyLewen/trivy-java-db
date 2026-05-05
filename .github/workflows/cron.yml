@@ -39,7 +39,7 @@ jobs:
         with:
           client-id: ${{ secrets.REPO_MAVEN_INDEX_READ_GH_APP_CLIENT_ID }}
           private-key: ${{ secrets.MAVEN_INDEX_READ_APP_PRIVATE_KEY }}
-          owner: aquasecurity
+          owner: DmitriyLewen
           repositories: maven-index
 
       - name: Clone maven-index repository
@@ -47,7 +47,7 @@ jobs:
         with:
           # Always use aquasecurity/maven-index as it's a private repository and cannot be forked.
           # Using ${github.repository_owner} would fail in forks as it doesn't exist there.
-          repository: aquasecurity/maven-index
+          repository: DmitriyLewen/maven-index
           path: maven-index
           token: ${{ steps.maven-index-token.outputs.token }}
           persist-credentials: false
